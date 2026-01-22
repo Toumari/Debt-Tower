@@ -4,10 +4,7 @@ import { computed } from 'vue'
 
 const store = useDebtStore()
 
-const percentPaid = computed(() => {
-    if (store.totalBlocks === 0) return 0
-    return Math.round((store.destroyedBlocks / store.totalBlocks) * 100)
-})
+
 
 const xpPerLevel = 1000
 
