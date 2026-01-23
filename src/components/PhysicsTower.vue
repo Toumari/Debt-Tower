@@ -23,6 +23,7 @@ const BLOCK_WIDTH = 50
 const BLOCK_HEIGHT = 25
 
 const isShaking = ref(false)
+let resizeObserver: ResizeObserver | null = null
 
 function triggerShake() {
     isShaking.value = true
@@ -44,7 +45,7 @@ onMounted(() => {
     engine.enableSleeping = false
 
     const width = container.value.clientWidth
-    const height = 600
+    const height = container.value.clientHeight
 
     render = Matter.Render.create({
         element: container.value,
@@ -59,7 +60,7 @@ onMounted(() => {
         }
     })
 
-    // Custom Liquid Rendering
+    // Custom Rendering
     Matter.Events.on(render, 'afterRender', () => {
         const ctx = render.context
         
@@ -74,17 +75,20 @@ onMounted(() => {
             ctx.translate(x, y)
             ctx.rotate(angle)
             
-            // Draw Container (Glass)
+            // Draw Block (Rounded)
             ctx.beginPath()
-            ctx.rect(-BLOCK_WIDTH/2, -BLOCK_HEIGHT/2, BLOCK_WIDTH, BLOCK_HEIGHT)
-            
-            // Draw Full Block
+            roundRect(ctx, -BLOCK_WIDTH/2, -BLOCK_HEIGHT/2, BLOCK_WIDTH, BLOCK_HEIGHT, 4)
             ctx.fillStyle = block.color
             ctx.fill()
             
+            // Inner Shine/Glow attempt
+            ctx.strokeStyle = 'rgba(255,255,255,0.2)'
+            ctx.lineWidth = 1
+            ctx.stroke()
+            
             // Draw Text
-            ctx.fillStyle = '#fff' 
-            ctx.font = 'bold 10px sans-serif'
+            ctx.fillStyle = 'rgba(255,255,255,0.9)' 
+            ctx.font = 'bold 11px system-ui'
             ctx.textAlign = 'center'
             ctx.textBaseline = 'middle'
             
@@ -101,20 +105,7 @@ onMounted(() => {
 
 
     // 2. Create Static Boundaries (Game Container)
-    const wallOptions = { 
-        isStatic: true, 
-        render: { fillStyle: '#334155', opacity: 0.5 },
-        friction: 0.0
-    }
-    
-    // Floor
-    const floor = Matter.Bodies.rectangle(width / 2, height + 25, width, 50, wallOptions)
-    
-    // Walls (Invisible-ish but keep blocks in)
-    const leftWall = Matter.Bodies.rectangle(-25, height / 2, 50, height * 2, wallOptions)
-    const rightWall = Matter.Bodies.rectangle(width + 25, height / 2, 50, height * 2, wallOptions)
-
-    Matter.World.add(world, [floor, leftWall, rightWall])
+    createBoundaries(width, height)
 
     // 4. Mouse Interaction (God Mode)
     const mouse = Matter.Mouse.create(render.canvas)
@@ -142,10 +133,15 @@ onMounted(() => {
     setTimeout(restack, 100)
 
     // 5. Watch for store changes
-    // Remove blocks when fully empty (ratio 0, filtered out of towerBlocks)
     watch(() => store.towerBlocks, () => {
         syncBodies()
     }, { deep: true })
+
+    // 6. Resize Observer
+    resizeObserver = new ResizeObserver(() => {
+        handleResize()
+    })
+    resizeObserver.observe(container.value)
 })
 
 onUnmounted(() => {
@@ -155,7 +151,61 @@ onUnmounted(() => {
     }
     if (runner) Matter.Runner.stop(runner)
     if (engine) Matter.Engine.clear(engine)
+    if (resizeObserver) resizeObserver.disconnect()
 })
+
+// Helper for rounded rect canvas
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+    if (w < 2 * r) r = w / 2;
+    if (h < 2 * r) r = h / 2;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+}
+
+let walls: Matter.Body[] = []
+
+function createBoundaries(w: number, h: number) {
+    // Remove old boundaries
+    if (walls.length > 0) {
+        Matter.World.remove(world, walls)
+    }
+
+    const wallOptions = { 
+        isStatic: true, 
+        render: { fillStyle: 'transparent', opacity: 0 },
+        friction: 0.0
+    }
+    
+    // Floor (invisible, slightly below view)
+    const floor = Matter.Bodies.rectangle(w / 2, h + 25, w, 50, wallOptions)
+    
+    // Walls (Invisible-ish but keep blocks in)
+    const leftWall = Matter.Bodies.rectangle(-25, h / 2, 50, h * 2, wallOptions)
+    const rightWall = Matter.Bodies.rectangle(w + 25, h / 2, 50, h * 2, wallOptions)
+
+    walls = [floor, leftWall, rightWall]
+    Matter.World.add(world, walls)
+}
+
+function handleResize() {
+    if (!container.value || !render) return
+    const w = container.value.clientWidth
+    const h = container.value.clientHeight
+
+    render.canvas.width = w
+    render.canvas.height = h
+    render.options.width = w
+    render.options.height = h
+    
+    createBoundaries(w, h)
+    restack() // Optional: Re-organize whenever resized? Maybe just let them fall? 
+             // Restack is cleaner for wide -> narrow transitions so they don't explode.
+}
 
 function syncBodies() {
     if (!container.value) return
@@ -170,14 +220,6 @@ function syncBodies() {
         if (!activeIds.has(id)) {
             // Block Destroyed!
             const { x, y } = body.position
-            // Use stored color or get from render props if available? 
-            // We need to look up the color from previous state or just guess?
-            // Actually, we can get it from the body.render.fillStyle if we set it?
-            // Wait, we didn't set fillStyle on the body render object, we drew it manually.
-            // Let's assume a default debris color or try to find the block in previous store state?
-            // Simpler: Just pass a generic "debris" color or random debt color.
-            // Better: We still have the bodyMap entry, but we don't have the block data easily if it's already gone from store.
-            // Hack: Store color on the body plugin object when creating.
             
             const color = (body as any).plugin.color || '#fff'
             spawnDebris(x, y, color)
@@ -191,13 +233,11 @@ function syncBodies() {
     // 3. Add or Update bodies
     store.towerBlocks.forEach((block, index) => {
         if (bodyMap.has(block.id)) {
-            // physics body stays constant size!
-            // Just update color reference?
             // No action needed really, render loop handles visual.
         } else {
             // New Body - Spawn at top
             const spawnX = centerX + (Math.random() - 0.5) * 50
-            const spawnY = -100 - (index * 5) // Faster spawn offset for small blocks 
+            const spawnY = -100 - (index * 5) 
             const body = createBlock(spawnX, spawnY, block)
             Matter.World.add(world, body)
             bodyMap.set(block.id, body)
@@ -210,22 +250,22 @@ function createBlock(x: number, y: number, block: any) {
     const h = BLOCK_HEIGHT
     
     const body = Matter.Bodies.rectangle(x, y, w, h, {
-        chamfer: { radius: 1 }, // Smaller radius
+        chamfer: { radius: 2 }, 
         render: {
             opacity: 0,
             fillStyle: 'transparent'
         },
         restitution: 0.1, 
-        friction: 0.9, // High friction for stable massive piles   
+        friction: 0.9,  
         density: 0.005,
-        slop: 0.01 // Tighten slope for small objects
+        slop: 0.01 
     })
     ;(body as any).plugin = { blockId: block.id, color: block.color }
     return body
 }
 
 function spawnDebris(x: number, y: number, color: string) {
-    const debrisCount = 4 + Math.floor(Math.random() * 4) // 4-8 pieces
+    const debrisCount = 4 + Math.floor(Math.random() * 4) 
     for (let i = 0; i < debrisCount; i++) {
         const size = 5 + Math.random() * 8
         const debris = Matter.Bodies.rectangle(x, y, size, size, {
@@ -234,7 +274,7 @@ function spawnDebris(x: number, y: number, color: string) {
             },
             friction: 0.5,
             restitution: 0.5,
-            density: 0.001 // Very light
+            density: 0.001 
         })
         
         // Explode outward
@@ -256,17 +296,16 @@ function spawnDebris(x: number, y: number, color: string) {
 function restack() {
     if (!container.value) return
     const width = container.value.clientWidth
-    const baseHeight = 600
+    const height = container.value.clientHeight
     
     // Staggered Brick Wall Logic (Running Bond)
-    // Micro blocks: 20x10. Gap 1px.
     const gap = 1
     const effWidth = BLOCK_WIDTH + gap
     
     // Calculate cols based on width
     const availableWidth = width - 40 
     const cols = Math.floor(availableWidth / effWidth)
-    const MAX_COLS = 10
+    const MAX_COLS = 12
     const safeCols = Math.max(1, Math.min(cols, MAX_COLS))
     
     // Center the wall
@@ -288,7 +327,7 @@ function restack() {
             const newX = startX + (col * effWidth) + (isOddRow ? (BLOCK_WIDTH / 2) : 0)
             
             // Y Position (Bottom Up)
-            const newY = baseHeight - (row * (BLOCK_HEIGHT + 1)) - (h / 2)
+            const newY = height - (row * (BLOCK_HEIGHT + 1)) - (h / 2) - 10 // -10 Padding from bottom
             
             // Teleport
             Matter.Body.setPosition(body, { x: newX, y: newY })
@@ -307,12 +346,11 @@ function triggerChaos() {
     // Disable gravity briefly
     engine.world.gravity.y = -0.5 // Float up slightly
     
-    // Iterate bodies and apply random force
     Matter.Composite.allBodies(world).forEach(body => {
         if (!body.isStatic) {
             Matter.Body.applyForce(body, body.position, {
                 x: (Math.random() - 0.5) * 0.2,
-                y: -0.05 - Math.random() * 0.1 // Kick up
+                y: -0.05 - Math.random() * 0.1 
             })
         }
     })
@@ -325,14 +363,15 @@ function triggerChaos() {
 
 <template>
     <div class="flex flex-col gap-4">
-        <div ref="container" :class="{ 'animate-shake': isShaking }" class="tower-container bg-slate-800/20 rounded-xl w-full min-h-[600px] relative border border-slate-700/50 backdrop-blur-sm overflow-hidden group">
+        <!-- Tower Container with Glassmorphism and Responsive Height -->
+        <div ref="container" :class="{ 'animate-shake': isShaking }" class="tower-container glass-panel rounded-2xl w-full h-[50vh] md:h-[600px] relative overflow-hidden group transition-all duration-300">
             
             <!-- Controls overlay -->
-            <div class="absolute top-4 right-4 flex flex-col items-end gap-2 z-30">
+            <div class="absolute top-4 right-4 flex flex-col items-end gap-2 z-30 pointer-events-auto">
                 <!-- Smash Button -->
                 <button 
                     @click="triggerChaos"
-                    class="bg-red-500/80 hover:bg-red-600/90 text-white p-2 rounded-full backdrop-blur-sm transition-all shadow-lg border border-red-400 hover:scale-110 active:scale-95 group/smash"
+                    class="bg-red-500/20 hover:bg-red-500/80 text-white p-2 rounded-full backdrop-blur-sm transition-all shadow-lg border border-red-500/50 hover:scale-110 active:scale-95 group/smash"
                     title="SMASH!"
                 >
                     <i class="pi pi-bolt text-xl animate-pulse group-hover/smash:animate-none"></i>
@@ -341,35 +380,36 @@ function triggerChaos() {
                 <!-- Restack Button -->
                 <button 
                     @click="restack"
-                    class="bg-slate-700/50 hover:bg-slate-600 text-slate-300 p-2 rounded-full backdrop-blur-sm transition-all shadow-lg border border-slate-600 hover:scale-110 active:scale-95"
+                    class="bg-slate-700/30 hover:bg-slate-600/80 text-slate-300 p-2 rounded-full backdrop-blur-sm transition-all shadow-lg border border-slate-600/50 hover:scale-110 active:scale-95"
                     title="Tidy Tower"
                 >
                     <i class="pi pi-align-justify text-xl"></i>
                 </button>
-                <div class="text-xs text-slate-500 font-mono text-right pointer-events-none">
+                <div class="text-xs text-slate-400 font-mono text-right pointer-events-none mt-2 glass-card px-2 py-1 rounded">
                      <p>{{ store.totalBlocks }} Blocks</p>
-                     <p>Liquid Physics</p>
+                     <p>Physics Active</p>
                 </div>
             </div>
 
             <!-- Victory Overlay -->
-            <div v-if="store.totalBlocks === 0 && store.totalPaid > 0" class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none">
-                 <h2 class="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500 mb-4 animate-bounce drop-shadow-lg">
+            <div v-if="store.totalBlocks === 0 && store.totalPaid > 0" class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none bg-black/20 backdrop-blur-sm">
+                 <h2 class="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-orange-400 to-yellow-300 mb-4 animate-bounce drop-shadow-[0_0_25px_rgba(234,179,8,0.6)]">
                     DEBT FREE!
                 </h2>
+                <p class="text-white text-xl font-bold tracking-widest uppercase animate-pulse">Mission Accomplished</p>
             </div>
         </div>
 
         <!-- Legend Below -->
-        <div class="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 shadow-sm">
-             <div v-for="debt in store.debts" :key="debt.id" class="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">
-                 <div class="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(0,0,0,0.5)]" :style="{ backgroundColor: debt.color }"></div>
+        <div class="glass-card rounded-xl p-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 shadow-sm">
+             <div v-for="debt in store.debts" :key="debt.id" class="flex items-center gap-2 bg-slate-800/40 px-2.5 py-1 rounded-full border border-slate-700/50">
+                 <div class="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.3)]" :style="{ backgroundColor: debt.color }"></div>
                  <span class="text-xs text-slate-300 font-bold tracking-wide">{{ debt.name }}</span>
              </div>
              
              <!-- Interest Legend -->
-             <div class="flex items-center gap-2 bg-slate-900/80 px-3 py-1.5 rounded-full border border-red-900/30">
-                  <div class="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(127,29,29,0.5)] bg-[#7f1d1d]"></div>
+             <div class="flex items-center gap-2 bg-red-900/20 px-2.5 py-1 rounded-full border border-red-500/20">
+                  <div class="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(220,38,38,0.5)] bg-red-600"></div>
                   <span class="text-xs text-red-200 font-bold tracking-wide">Interest</span>
              </div>
         </div>
