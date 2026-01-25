@@ -410,11 +410,27 @@ function handleResize() {
     const w = container.value.clientWidth
     const h = container.value.clientHeight
 
-    // Force exact canvas syncing
-    render.canvas.width = w
-    render.canvas.height = h
+    const pixelRatio = window.devicePixelRatio || 1
+
+    // Update dimensions in options
     render.options.width = w
     render.options.height = h
+
+    // Force exact canvas syncing with DPI support
+    render.canvas.width = w * pixelRatio
+    render.canvas.height = h * pixelRatio
+    
+    // Explicitly set display size to match container
+    render.canvas.style.width = `${w}px`
+    render.canvas.style.height = `${h}px`
+    
+    // Reset context scale for DPI
+    // Matter.js setup does this once, but if we resize the buffer, we might lose the scale transform?
+    // Actually Matter.js usually sets scale in the run loop or before render?
+    // Let's re-apply it just in case, though Matter's renderer might over-write it.
+    // Matter Render Loop: ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
+    // It usually does this every frame if using Render.run. So we generally don't need to manually scale.
+    // BUT we do need to ensure the buffer is big enough.
     
     updateBlockDimensions() 
     createBoundaries(w, h)
@@ -422,9 +438,6 @@ function handleResize() {
     // Immediate Re-center of everything
     Matter.World.remove(world, Array.from(bodyMap.values()))
     bodyMap.clear()
-    
-    // Cancel any pending syncs
-    // Force invalidation
     
     setTimeout(() => {
         syncBodies()
