@@ -545,8 +545,15 @@ function restack() {
     
     // Center the wall
     const wallWidth = safeCols * effWidth
-    // START FIX: Adjust startX centering
-    const startX = (width - wallWidth) / 2 + (w / 2)
+    // Left-align slightly if we are centering, but ensure we don't start too far left
+    // If we stagger, we need extra space on the right.
+    const isMobile = width < 600
+    const staggerOffset = isMobile ? 0 : (w / 2) // No stagger on mobile
+    
+    // Calculate startX such that the WHOLE structure (including stagger) is centered
+    // Total geometric width = wallWidth + (isMobile ? 0 : staggerOffset)
+    const totalGeoWidth = wallWidth + staggerOffset
+    const startX = (width - totalGeoWidth) / 2 + (w / 2)
     
     store.towerBlocks.forEach((block, index) => {
         const body = bodyMap.get(block.id)
@@ -556,10 +563,10 @@ function restack() {
             const row = Math.floor(index / safeCols)
             const col = index % safeCols
             
-            // Staggered Offset for odd rows
-            const isOddRow = row % 2 !== 0
+            // Staggered Offset for odd rows (Desktop only)
+            const isOddRow = !isMobile && (row % 2 !== 0)
             
-            const newX = startX + (col * effWidth) + (isOddRow ? (w / 2) : 0)
+            const newX = startX + (col * effWidth) + (isOddRow ? staggerOffset : 0)
             
             // Y Position (Bottom Up)
             const newY = height - (row * (h + 1)) - (h / 2) - 10 // -10 Padding from bottom
