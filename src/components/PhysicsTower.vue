@@ -47,8 +47,8 @@ function updateBlockDimensions() {
     // Mobile Breakpoint
     if (w < 600) {
         // Hardcode for safety - The calculation might be failing or resulting in weird aspect ratios
-        blockWidth.value = 35
-        blockHeight.value = 20
+        blockWidth.value = 32 // Reduced from 35
+        blockHeight.value = 18 // Reduced from 20
     } else {
         blockWidth.value = 50
         blockHeight.value = 25
@@ -136,7 +136,8 @@ onMounted(() => {
             
             // Draw Text
             ctx.fillStyle = 'rgba(255,255,255,0.9)' 
-            ctx.font = `bold ${Math.max(10, w * 0.25)}px system-ui` // Scale font
+            // Reduced font scaling factor from 0.25 to 0.22 and min size from 10 to 9
+            ctx.font = `bold ${Math.max(9, w * 0.22)}px system-ui` 
             ctx.textAlign = 'center'
             ctx.textBaseline = 'middle'
             
@@ -532,7 +533,7 @@ function restack() {
     // Staggered Brick Wall Logic (Running Bond)
     const w = blockWidth.value
     const h = blockHeight.value
-    const gap = 2 // Increased gap to prevent overlap
+    const gap = 3 // Increased gap to prevent overlap
     const effWidth = w + gap
     
     // Calculate cols based on width
