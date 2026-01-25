@@ -10,11 +10,13 @@ const container = ref<HTMLElement | null>(null)
 
 const props = defineProps<{
     targetingMode: boolean,
-    paymentAmount: number
+    paymentAmount: number,
+    selectedWeapon?: string
 }>()
 
 const emit = defineEmits<{
     (e: 'target-confirmed', blockId: string): void
+    (e: 'area-target-confirmed', blockIds: string[]): void
     (e: 'cancel-targeting'): void
 }>()
 
@@ -30,13 +32,29 @@ let mouseConstraint: Matter.MouseConstraint
 // Map blockId -> Body
 const bodyMap = new Map<string, Matter.Body>()
 
-// Config
-const BLOCK_WIDTH = 50
-const BLOCK_HEIGHT = 25
+// Config (Dynamic)
+const blockWidth = ref(50)
+const blockHeight = ref(25)
 
 const isShaking = ref(false)
 const warningMsg = ref('')
 let warningTimeout: number | null = null
+
+function updateBlockDimensions() {
+    if (!container.value) return
+    const w = container.value.clientWidth
+    
+    // Mobile Breakpoint (approx < 768px for "md")
+    if (w < 600) {
+        // Smaller blocks for mobile
+        // Try to fit at least 6-8 cols
+        blockWidth.value = Math.max(30, Math.floor(w / 10))
+        blockHeight.value = Math.max(15, Math.floor(blockWidth.value * 0.5))
+    } else {
+        blockWidth.value = 50
+        blockHeight.value = 25
+    }
+}
 
 function showWarning(msg: string) {
     warningMsg.value = msg
@@ -60,6 +78,9 @@ function triggerShake() {
 
 onMounted(() => {
     if (!container.value) return
+
+    // Calculate initial dimensions
+    updateBlockDimensions()
 
     // 1. Setup Matter.js
     engine = Matter.Engine.create()
@@ -89,6 +110,8 @@ onMounted(() => {
     // Custom Rendering
     Matter.Events.on(render, 'afterRender', () => {
         const ctx = render.context
+        const w = blockWidth.value
+        const h = blockHeight.value
         
         store.towerBlocks.forEach(block => {
             const body = bodyMap.get(block.id)
@@ -103,7 +126,7 @@ onMounted(() => {
             
             // Draw Block (Rounded)
             ctx.beginPath()
-            roundRect(ctx, -BLOCK_WIDTH/2, -BLOCK_HEIGHT/2, BLOCK_WIDTH, BLOCK_HEIGHT, 4)
+            roundRect(ctx, -w/2, -h/2, w, h, 4)
             ctx.fillStyle = block.color
             ctx.fill()
             
@@ -114,7 +137,7 @@ onMounted(() => {
             
             // Draw Text
             ctx.fillStyle = 'rgba(255,255,255,0.9)' 
-            ctx.font = 'bold 11px system-ui'
+            ctx.font = `bold ${Math.max(10, w * 0.25)}px system-ui` // Scale font
             ctx.textAlign = 'center'
             ctx.textBaseline = 'middle'
             
@@ -202,21 +225,30 @@ onMounted(() => {
         if (target) {
             const blockId = (target as any).plugin.blockId
             
-            // Check value constraint
-            // We need to look up the actual block data from the store or body plugin if it has current value
-            // The body plugin only has ID and color. We need to find the block in the store.
-            const block = store.towerBlocks.find(b => b.id === blockId)
-            
-            if (block) {
-                if (props.paymentAmount > block.current) {
-                     showWarning('Laser power exceeds block value!')
-                     return
+            if (props.selectedWeapon === 'random') {
+                 // C4 AoE Logic
+                 const BLAST_RADIUS = blockWidth.value * 3 // Dynamic radius
+                 const hitBodies = bodies.filter(b => {
+                     if (b.isStatic || !(b as any).plugin?.blockId) return false
+                     const dist = Matter.Vector.magnitude(Matter.Vector.sub(b.position, target.position))
+                     return dist <= BLAST_RADIUS
+                 })
+                 
+                 const affectedIds = hitBodies.map(b => (b as any).plugin.blockId)
+                 emit('area-target-confirmed', affectedIds)
+
+            } else {
+                 // Single Target (Laser or Hammer)
+                const block = store.towerBlocks.find(b => b.id === blockId)
+                
+                if (block) {
+                    if (props.selectedWeapon === 'targeted' && props.paymentAmount > block.current) {
+                         showWarning('Laser power exceeds block value!')
+                         return
+                    }
+                    emit('target-confirmed', blockId)
                 }
-                emit('target-confirmed', blockId)
             }
-        } else {
-            // Missed? Maybe cancel?
-            // emit('cancel-targeting')
         }
     })
 
@@ -224,34 +256,75 @@ onMounted(() => {
         if (!props.targetingMode) return
 
         const ctx = render.context
-        
-        // Draw Crosshair
-        ctx.strokeStyle = '#06b6d4' // Cyan
-        ctx.lineWidth = 2
-        ctx.beginPath()
-        ctx.arc(mousePosition.x, mousePosition.y, 20, 0, 2 * Math.PI)
-        ctx.stroke()
-        
-        // Draw Cross lines
-        ctx.beginPath()
-        ctx.moveTo(mousePosition.x - 25, mousePosition.y)
-        ctx.lineTo(mousePosition.x + 25, mousePosition.y)
-        ctx.moveTo(mousePosition.x, mousePosition.y - 25)
-        ctx.lineTo(mousePosition.x, mousePosition.y + 25)
-        ctx.stroke()
-        
-        // Draw Laser Line from bottom center (or top?)
-        const startX = render.canvas.width / 2
-        const startY = render.canvas.height
-        
-        ctx.beginPath()
-        ctx.moveTo(startX, startY)
-        ctx.lineTo(mousePosition.x, mousePosition.y)
-        ctx.strokeStyle = 'rgba(6, 182, 212, 0.4)'
-        ctx.lineWidth = 4
-        ctx.setLineDash([10, 10]) // Dashed laser guide
-        ctx.stroke()
-        ctx.setLineDash([]) // Reset
+        const { x, y } = mousePosition
+
+        if (props.selectedWeapon === 'random') {
+            // C4: Blast Radius Indicator
+            const radius = blockWidth.value * 3
+            ctx.beginPath()
+            ctx.arc(x, y, radius, 0, 2 * Math.PI)
+            ctx.fillStyle = 'rgba(249, 115, 22, 0.2)' // Orange tint
+            ctx.fill()
+            ctx.strokeStyle = '#f97316'
+            ctx.lineWidth = 2
+            ctx.setLineDash([5, 5])
+            ctx.stroke()
+            ctx.setLineDash([])
+            
+            // Center Marker
+            ctx.beginPath()
+            ctx.arc(x, y, 5, 0, 2 * Math.PI)
+            ctx.fillStyle = '#fff'
+            ctx.fill()
+            
+             // Label
+            ctx.fillStyle = '#f97316'
+            ctx.font = 'bold 12px monospace'
+            ctx.fillText('BLAST ZONE', x + 10, y - 10)
+
+        } else if (props.selectedWeapon === 'standard') {
+            // Hammer: Impact Zone
+            const w = blockWidth.value
+            const h = blockHeight.value
+            
+            ctx.strokeStyle = '#818cf8' // Indigo
+            ctx.lineWidth = 3
+            ctx.strokeRect(x - w/2, y - h/2, w, h)
+            
+            // Icon
+            ctx.font = '24px serif'
+            ctx.fillStyle = '#fff'
+            ctx.fillText('🔨', x, y - 30)
+
+        } else {
+            // Laser: Crosshair (Existing)
+            ctx.strokeStyle = '#06b6d4' // Cyan
+            ctx.lineWidth = 2
+            ctx.beginPath()
+            ctx.arc(x, y, 20, 0, 2 * Math.PI)
+            ctx.stroke()
+            
+            // Draw Cross lines
+            ctx.beginPath()
+            ctx.moveTo(x - 25, y)
+            ctx.lineTo(x + 25, y)
+            ctx.moveTo(x, y - 25)
+            ctx.lineTo(x, y + 25)
+            ctx.stroke()
+            
+            // Laser Line
+            const startX = render.canvas.width / 2
+            const startY = render.canvas.height
+            
+            ctx.beginPath()
+            ctx.moveTo(startX, startY)
+            ctx.lineTo(x, y)
+            ctx.strokeStyle = 'rgba(6, 182, 212, 0.4)'
+            ctx.lineWidth = 4
+            ctx.setLineDash([10, 10])
+            ctx.stroke()
+            ctx.setLineDash([])
+        }
     })
 
     // 7. Resize Observer
@@ -334,9 +407,21 @@ function handleResize() {
     render.options.width = w
     render.options.height = h
     
+    updateBlockDimensions() // Update width/height refs
     createBoundaries(w, h)
-    restack() // Optional: Re-organize whenever resized? Maybe just let them fall? 
-             // Restack is cleaner for wide -> narrow transitions so they don't explode.
+    
+    // Recreate blocks with new size? Or just scale them?
+    // Matter.js bodies don't easy scale well with mass/density preservation if we just scale the vertices.
+    // It might be cleaner to full re-sync (recreate) everyone.
+    
+    // Clear all bodies and re-sync
+    Matter.World.remove(world, Array.from(bodyMap.values()))
+    bodyMap.clear()
+    
+    setTimeout(() => {
+        syncBodies()
+        restack()
+    }, 50)
 }
 
 function syncBodies() {
@@ -379,8 +464,8 @@ function syncBodies() {
 }
 
 function createBlock(x: number, y: number, block: any) {
-    const w = BLOCK_WIDTH
-    const h = BLOCK_HEIGHT
+    const w = blockWidth.value // Use dynamic
+    const h = blockHeight.value
     
     const body = Matter.Bodies.rectangle(x, y, w, h, {
         chamfer: { radius: 2 }, 
@@ -432,8 +517,10 @@ function restack() {
     const height = container.value.clientHeight
     
     // Staggered Brick Wall Logic (Running Bond)
+    const w = blockWidth.value
+    const h = blockHeight.value
     const gap = 1
-    const effWidth = BLOCK_WIDTH + gap
+    const effWidth = w + gap
     
     // Calculate cols based on width
     const availableWidth = width - 40 
@@ -443,12 +530,11 @@ function restack() {
     
     // Center the wall
     const wallWidth = safeCols * effWidth
-    const startX = (width - wallWidth) / 2 + (BLOCK_WIDTH / 2)
+    const startX = (width - wallWidth) / 2 + (w / 2)
     
     store.towerBlocks.forEach((block, index) => {
         const body = bodyMap.get(block.id)
         if (body) {
-            const h = BLOCK_HEIGHT 
             
             // Grid Position
             const row = Math.floor(index / safeCols)
@@ -457,10 +543,10 @@ function restack() {
             // Staggered Offset for odd rows
             const isOddRow = row % 2 !== 0
             
-            const newX = startX + (col * effWidth) + (isOddRow ? (BLOCK_WIDTH / 2) : 0)
+            const newX = startX + (col * effWidth) + (isOddRow ? (w / 2) : 0)
             
             // Y Position (Bottom Up)
-            const newY = height - (row * (BLOCK_HEIGHT + 1)) - (h / 2) - 10 // -10 Padding from bottom
+            const newY = height - (row * (h + 1)) - (h / 2) - 10 // -10 Padding from bottom
             
             // Teleport
             Matter.Body.setPosition(body, { x: newX, y: newY })
@@ -538,11 +624,16 @@ function triggerChaos() {
 
             <!-- Targeting Overlay -->
             <div v-if="targetingMode" class="absolute top-4 left-4 z-40 pointer-events-auto">
-                <div class="flex items-center gap-3 bg-slate-900/80 backdrop-blur rounded-xl p-3 border border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.3)]">
-                     <i class="pi pi-bolt text-cyan-400 animate-pulse text-2xl"></i>
+                <div class="flex items-center gap-3 bg-slate-900/80 backdrop-blur rounded-xl p-3 border shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-colors" 
+                :class="selectedWeapon === 'random' ? 'border-orange-500/50 shadow-orange-500/20' : selectedWeapon === 'targeted' ? 'border-cyan-500/50 shadow-cyan-500/20' : 'border-indigo-500/50 shadow-indigo-500/20'">
+                     <i class="pi text-2xl animate-pulse" :class="selectedWeapon === 'random' ? 'pi-box text-orange-400' : selectedWeapon === 'targeted' ? 'pi-bolt text-cyan-400' : 'pi-hammer text-indigo-400'"></i>
                      <div>
-                         <p class="text-cyan-400 font-black uppercase text-xs tracking-widest">Targeting Active</p>
-                         <p class="text-white font-mono text-sm leading-none mt-1">Select Block to Destroy (£{{ paymentAmount }})</p>
+                         <p class="font-black uppercase text-xs tracking-widest" :class="selectedWeapon === 'random' ? 'text-orange-400' : selectedWeapon === 'targeted' ? 'text-cyan-400' : 'text-indigo-400'">
+                            {{ selectedWeapon === 'random' ? 'BLAST ZONE ACTIVE' : selectedWeapon === 'targeted' ? 'PRECISION LASER' : 'HAMMER TIME' }}
+                         </p>
+                         <p class="text-white font-mono text-sm leading-none mt-1">
+                             {{ selectedWeapon === 'random' ? 'Select Center of Impact' : 'Select Block to Destroy' }} (£{{ paymentAmount }})
+                         </p>
                          <p class="text-[10px] text-slate-400 mt-1 font-mono">Press <span class="text-white font-bold">ESC</span> to cancel</p>
                      </div>
                      <button @click="emit('cancel-targeting')" class="ml-2 hover:bg-white/10 p-2 rounded-full transition-colors text-white">

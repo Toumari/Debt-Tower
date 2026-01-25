@@ -127,14 +127,24 @@ export const useDebtStore = defineStore('debt', () => {
     }
 
     // Payment Logic - Strategies
-    function makePayment(amount: number, targetDebtId?: string, strategy: 'standard' | 'random' | 'targeted' = 'standard', targetBlockId?: string) {
+    function makePayment(amount: number, targetDebtId?: string, strategy: 'standard' | 'random' | 'targeted' = 'standard', targetBlockId?: string, specificBlockIds?: string[]) {
         if (remainingDebt.value <= 0) return
 
         let amountLeft = amount
         let targetBlocks: Block[] = []
 
         // 1. SELECT TARGETS BASED ON STRATEGY
-        if (strategy === 'targeted' && targetBlockId) {
+        if (specificBlockIds && specificBlockIds.length > 0) {
+            // Direct targeting of multiple blocks (C4 AoE)
+            debts.value.forEach((d: Debt) => {
+                d.blocks.forEach((b: Block) => {
+                    if (specificBlockIds.indexOf(b.id) !== -1 && b.current > 0) {
+                        targetBlocks.push(b)
+                    }
+                })
+            })
+        }
+        else if (strategy === 'targeted' && targetBlockId) {
             // Precise Laser Shot
             debts.value.forEach((d: Debt) => {
                 const block = d.blocks.find((b: Block) => b.id === targetBlockId)
@@ -144,10 +154,22 @@ export const useDebtStore = defineStore('debt', () => {
             })
         }
         else if (strategy === 'random') {
-            // Dynamite Chaos - Pick N random blocks across entire tower
-            const allActive = debts.value.flatMap((d: Debt) => d.blocks.filter((b: Block) => b.current > 0))
+            // ... (keep existing random logic if needed, or deprecate if fully replacing)
+            // C4 / Dynamite Logic (Legacy/Fallback)
+            let candidateBlocks: Block[] = []
+
+            if (targetDebtId) {
+                const debt = debts.value.find((d: Debt) => d.id === targetDebtId)
+                if (debt) {
+                    candidateBlocks = debt.blocks.filter((b: Block) => b.current > 0)
+                }
+            } else {
+                // Global Chaos (fallback)
+                candidateBlocks = debts.value.flatMap((d: Debt) => d.blocks.filter((b: Block) => b.current > 0))
+            }
+
             // Shuffle and pick
-            targetBlocks = allActive.sort(() => 0.5 - Math.random())
+            targetBlocks = candidateBlocks.sort(() => 0.5 - Math.random())
         }
         else {
             // Standard (Hammer) - Top Down
@@ -165,9 +187,6 @@ export const useDebtStore = defineStore('debt', () => {
         }
 
         // 2. APPLY DAMAGE
-        // For Random/Dynamite, we distribute damage across multiple blocks? Or Focus one by one from the shuffled list?
-        // Let's go one by one for now to ensure we use up the money efficiently.
-
         while (amountLeft > 0 && targetBlocks.length > 0) {
             const block = targetBlocks[0]
             if (!block) break;
@@ -202,6 +221,10 @@ export const useDebtStore = defineStore('debt', () => {
 
     function paySpecificBlock(blockId: string, amount: number) {
         makePayment(amount, undefined, 'targeted', blockId)
+    }
+
+    function payBlocks(amount: number, blockIds: string[]) {
+        makePayment(amount, undefined, 'standard', undefined, blockIds)
     }
 
     function reduceInterestBlocks(debt: Debt, amount: number) {
@@ -273,6 +296,7 @@ export const useDebtStore = defineStore('debt', () => {
         addDebt,
         makePayment,
         paySpecificBlock,
+        payBlocks,
         resetProgress,
         clearDebts
     }

@@ -12,10 +12,12 @@ const store = useDebtStore()
 
 const isTargeting = ref(false)
 const pendingPayment = ref(0)
+const currentWeapon = ref('standard')
 
-function enableTargeting(amount: number) {
+function enableTargeting(payload: { amount: number, weapon: string }) {
     isTargeting.value = true
-    pendingPayment.value = amount
+    pendingPayment.value = payload.amount
+    currentWeapon.value = payload.weapon
 }
 
 function cancelTargeting() {
@@ -25,10 +27,30 @@ function cancelTargeting() {
 
 function handleTargetConfirmed(blockId: string) {
     if (pendingPayment.value > 0) {
-        // Laser Shot
-        playSfx('laser')
+        // Laser Shot or Hammer
+        if (currentWeapon.value === 'targeted') {
+             playSfx('laser')
+        } else {
+             playSfx('attack')
+        }
+        
         shake(200)
         store.paySpecificBlock(blockId, pendingPayment.value)
+        
+        // Reset
+        isTargeting.value = false
+        pendingPayment.value = 0
+    }
+}
+
+function handleAreaTargetConfirmed(blockIds: string[]) {
+    if (pendingPayment.value > 0 && blockIds.length > 0) {
+        // C4 Explosion
+        playSfx('dynamite')
+        shake(800)
+        
+        // Store handles distribution
+        store.payBlocks(pendingPayment.value, blockIds)
         
         // Reset
         isTargeting.value = false
@@ -80,7 +102,9 @@ function handleTargetConfirmed(blockId: string) {
            <PhysicsTower 
               :targeting-mode="isTargeting" 
               :payment-amount="pendingPayment"
+              :selected-weapon="currentWeapon"
               @target-confirmed="handleTargetConfirmed"
+              @area-target-confirmed="handleAreaTargetConfirmed"
               @cancel-targeting="cancelTargeting"
            />
         </div>

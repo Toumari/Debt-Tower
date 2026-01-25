@@ -30,182 +30,141 @@ function addNewDebt() {
     }
 }
 
-function handlePayment() {
-    if (paymentAmount.value && paymentAmount.value > 0) {
-        // Juice based on weapon
-        if (selectedWeapon.value === 'random') {
-            playSfx('dynamite')
-            shake(800)
-             store.makePayment(paymentAmount.value, undefined, 'random')
-        } else {
-            playSfx('attack') // Standard
-            shake(500)
-            store.makePayment(paymentAmount.value, selectedDebt.value?.id, 'standard')
+    function handleWeaponActivation() {
+        if (paymentAmount.value && paymentAmount.value > 0) {
+            emit('enable-targeting', { 
+                amount: paymentAmount.value, 
+                weapon: selectedWeapon.value 
+            })
         }
-        
-        paymentAmount.value = null
     }
-}
 
-function toggleTargeting() {
-    if (paymentAmount.value && paymentAmount.value > 0) {
-        emit('enable-targeting', paymentAmount.value)
+    function formatCurrency(value: number) {
+        return value.toLocaleString('en-GB', { style: 'currency', currency: 'GBP' });
     }
-}
 
-function formatCurrency(value: number) {
-    return value.toLocaleString('en-GB', { style: 'currency', currency: 'GBP' });
-}
-
-// Compute the max payment allowed based on selection
-const maxPayment = computed(() => {
-    if (selectedDebt.value) {
-        return selectedDebt.value.amount - selectedDebt.value.paid
-    }
-    return store.remainingDebt
-})
-
-const activeEnemies = computed(() => {
-    // 1. Regular Debts
-    const list = store.debts.map(d => ({
-        id: d.id,
-        name: d.name,
-        color: d.color,
-        remaining: d.amount - d.paid,
-        original: d.amount,
-        isInterest: false
-    }))
-
-    // 2. Calculate Total Interest Blocks
-    let totalInterest = 0
-    let originalInterest = 0
-    
-    store.debts.forEach(d => {
-        d.blocks.forEach(b => {
-             if (b.type === 'interest') {
-                 if (b.current > 0) totalInterest += b.current
-                 originalInterest += b.max 
-             }
-        })
+    // Compute the max payment allowed based on selection
+    const maxPayment = computed(() => {
+        if (selectedDebt.value) {
+            return selectedDebt.value.amount - selectedDebt.value.paid
+        }
+        return store.remainingDebt
     })
-
-    if (totalInterest > 0) {
-        list.push({
-            id: 'interest-enemy',
-            name: 'COMPOUND INTEREST',
-            color: '#ef4444', 
-            remaining: totalInterest,
-            original: originalInterest,
-            isInterest: true
+    
+    // ... (Computed Properties omitted for brevity if unchanged) ... 
+    
+    // NOTE: computed properties activeEnemies and totalActiveDebt are unchanged but referenced here for context
+    const activeEnemies = computed(() => {
+        // 1. Regular Debts
+        const list = store.debts.map(d => ({
+            id: d.id,
+            name: d.name,
+            color: d.color,
+            remaining: d.amount - d.paid,
+            original: d.amount,
+            isInterest: false
+        }))
+    
+        // 2. Calculate Total Interest Blocks
+        let totalInterest = 0
+        let originalInterest = 0
+        
+        store.debts.forEach(d => {
+            d.blocks.forEach(b => {
+                 if (b.type === 'interest') {
+                     if (b.current > 0) totalInterest += b.current
+                     originalInterest += b.max 
+                 }
+            })
         })
-    }
-
-    return list
-})
-
-const totalActiveDebt = computed(() => {
-    return activeEnemies.value.reduce((sum, e) => sum + e.remaining, 0)
-})
-</script>
-
-<template>
-    <div class="space-y-6">
-        <!-- Attack Console (Payment) -->
-        <div class="glass-card rounded-2xl p-6 border-t border-white/10 relative overflow-hidden group">
-            <!-- Background Decoration -->
-            <div class="absolute -top-10 -right-10 w-32 h-32 bg-purple-500/20 rounded-full blur-3xl group-hover:bg-purple-500/30 transition-all duration-700"></div>
-
-            <div class="relative z-10 flex flex-col gap-6">
-                 <div class="flex items-center gap-3 border-b border-white/5 pb-4">
-                    <div class="bg-indigo-500/20 p-2 rounded-lg">
-                        <i class="pi pi-bolt text-yellow-400 text-xl animate-pulse"></i>
-                    </div>
-                    <div>
-                        <h2 class="text-xl font-black tracking-tight text-white uppercase">Attack Console</h2>
-                        <p class="text-xs text-slate-400 font-mono">Weaponize your payments</p>
-                    </div>
-                 </div>
-
-                 <div class="flex flex-col gap-5">
-                     <!-- Weapon Selector -->
-                     <div class="space-y-2">
-                        <label class="text-xs uppercase font-bold text-indigo-300 tracking-wider ml-1 flex justify-between">
-                            <span>Select Weapon</span>
-                            <span class="text-[10px] text-slate-500 font-normal normal-case italic">Choose your destruction style</span>
-                        </label>
-                        <div class="grid grid-cols-3 gap-2">
-                            <button @click="selectedWeapon = 'standard'" :class="{'!bg-slate-700 !border-indigo-500 ring-1 ring-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.3)]': selectedWeapon === 'standard'}" class="flex flex-col items-center gap-1 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 hover:bg-slate-700/60 transition-all group relative overflow-hidden">
-                                <div v-if="selectedWeapon === 'standard'" class="absolute inset-0 bg-indigo-500/10"></div>
-                                <i class="pi pi-hammer text-2xl relative z-10" :class="selectedWeapon === 'standard' ? 'text-indigo-400' : 'text-slate-500 group-hover:text-slate-300'"></i>
-                                <span class="text-[10px] uppercase font-bold text-slate-400 relative z-10">Hammer</span>
-                            </button>
-                            
-                            <button @click="selectedWeapon = 'random'" :class="{'!bg-slate-700 !border-orange-500 ring-1 ring-orange-500/50 shadow-[0_0_15px_rgba(249,115,22,0.3)]': selectedWeapon === 'random'}" class="flex flex-col items-center gap-1 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 hover:bg-slate-700/60 transition-all group relative overflow-hidden">
-                                <div v-if="selectedWeapon === 'random'" class="absolute inset-0 bg-orange-500/10"></div>
-                                <i class="pi pi-box text-2xl relative z-10" :class="selectedWeapon === 'random' ? 'text-orange-400' : 'text-slate-500 group-hover:text-slate-300'"></i>
-                                <span class="text-[10px] uppercase font-bold text-slate-400 relative z-10">Dynamite</span>
-                            </button>
-                            
-                            <button @click="selectedWeapon = 'targeted'" :class="{'!bg-slate-700 !border-cyan-500 ring-1 ring-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.3)]': selectedWeapon === 'targeted'}" class="flex flex-col items-center gap-1 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 hover:bg-slate-700/60 transition-all group relative overflow-hidden">
-                                <div v-if="selectedWeapon === 'targeted'" class="absolute inset-0 bg-cyan-500/10"></div>
-                                <i class="pi pi-bolt text-2xl relative z-10" :class="selectedWeapon === 'targeted' ? 'text-cyan-400' : 'text-slate-500 group-hover:text-slate-300'"></i>
-                                <span class="text-[10px] uppercase font-bold text-slate-400 relative z-10">Laser</span>
-                            </button>
+    
+        if (totalInterest > 0) {
+            list.push({
+                id: 'interest-enemy',
+                name: 'COMPOUND INTEREST',
+                color: '#ef4444', 
+                remaining: totalInterest,
+                original: originalInterest,
+                isInterest: true
+            })
+        }
+    
+        return list
+    })
+    
+    const totalActiveDebt = computed(() => {
+        return activeEnemies.value.reduce((sum, e) => sum + e.remaining, 0)
+    })
+    </script>
+    
+    <template>
+        <div class="space-y-6">
+            <!-- Attack Console (Payment) -->
+            <div class="glass-card rounded-2xl p-6 border-t border-white/10 relative overflow-hidden group">
+                <!-- Background Decoration -->
+                <div class="absolute -top-10 -right-10 w-32 h-32 bg-purple-500/20 rounded-full blur-3xl group-hover:bg-purple-500/30 transition-all duration-700"></div>
+    
+                <div class="relative z-10 flex flex-col gap-6">
+                     <div class="flex items-center gap-3 border-b border-white/5 pb-4">
+                        <div class="bg-indigo-500/20 p-2 rounded-lg">
+                            <i class="pi pi-bolt text-yellow-400 text-xl animate-pulse"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-black tracking-tight text-white uppercase">Attack Console</h2>
+                            <p class="text-xs text-slate-400 font-mono">Weaponize your payments</p>
                         </div>
                      </div>
-
-                     <!-- Target Selector -->
-                     <div class="space-y-2" v-if="selectedWeapon !== 'random'">
-                        <label class="text-xs uppercase font-bold text-indigo-300 tracking-wider ml-1">Select Priority Debt</label>
-                        <Select v-model="selectedDebt" :options="store.debts" optionLabel="name" placeholder="Auto-Target (Highest Interest)" class="w-full !bg-slate-900/50 !border-slate-700/50 !rounded-xl !text-sm hover:!border-indigo-500/50 transition-colors" :pt="{
-                            overlay: { class: 'bg-slate-900 border border-slate-700 !rounded-xl shadow-2xl backdrop-blur-xl' },
-                            list: { class: 'p-1' },
-                            option: { class: 'hover:bg-indigo-500/20 rounded-lg transition-colors m-1' }
-                        }">
-                            <template #option="slotProps">
-                                <div class="flex items-center justify-between w-full py-1">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-2 h-8 rounded-full" :style="{ backgroundColor: slotProps.option.color }"></div>
-                                        <span class="font-bold text-slate-200">{{ slotProps.option.name }}</span>
-                                    </div>
-                                    <span class="font-mono text-xs text-slate-400 bg-slate-800 px-2 py-0.5 rounded">{{ formatCurrency(slotProps.option.amount - slotProps.option.paid) }}</span>
-                                </div>
-                            </template>
-                             <template #value="slotProps">
-                                <div v-if="slotProps.value" class="flex items-center gap-3">
-                                     <div class="w-2 h-2 rounded-full shadow-[0_0_10px_currentColor]" :style="{ backgroundColor: slotProps.value.color, color: slotProps.value.color }"></div>
-                                    <span class="font-bold text-slate-200">{{ slotProps.value.name }}</span>
-                                </div>
-                                <span v-else class="text-slate-400 italic">
-                                    <i class="pi pi-crosshairs mr-2"></i>{{ slotProps.placeholder }}
-                                </span>
-                            </template>
-                        </Select>
-                    </div>
-
-                     <!-- Amount Input -->
-                    <div class="space-y-2">
-                         <label class="text-xs uppercase font-bold text-indigo-300 tracking-wider ml-1">Firepower (Amount)</label>
-                         <div class="flex flex-col sm:flex-row gap-3">
-                              <InputNumber v-model="paymentAmount" mode="currency" currency="GBP" locale="en-GB" placeholder="£0.00" class="flex-1 w-full" inputClass="!bg-slate-900/50 !border-slate-700/50 !rounded-xl !text-lg !font-mono !text-white focus:!ring-2 focus:!ring-indigo-500/50 !transition-all w-full" :min="0" :max="maxPayment" :minFractionDigits="2" :maxFractionDigits="2" />
-                              
-                              <!-- Dynamic Button -->
-                              <Button v-if="selectedWeapon !== 'targeted'" icon="pi pi-send" :label="selectedWeapon === 'random' ? 'DETONATE' : 'PAY'" @click="handlePayment" :disabled="!paymentAmount || paymentAmount <= 0" 
-                                class="!border-none !rounded-xl !font-black !tracking-wider !px-8 !py-3 hover:!scale-105 active:!scale-95 !transition-all !shadow-lg disabled:!opacity-50 disabled:!cursor-not-allowed shrink-0 w-full sm:w-auto"
-                                :class="selectedWeapon === 'random' ? '!bg-gradient-to-r !from-orange-600 !to-red-600 shadow-[0_0_20px_rgba(249,115,22,0.4)]' : '!bg-gradient-to-r !from-indigo-600 !to-purple-600 shadow-[0_0_20px_rgba(99,102,241,0.4)]'"
-                              />
-                              <Button v-else icon="pi pi-bullseye" label="ENGAGE" @click="toggleTargeting" :disabled="!paymentAmount || paymentAmount <= 0"
-                                class="!bg-gradient-to-r !from-cyan-600 !to-blue-600 !border-none !rounded-xl !font-black !tracking-wider !px-8 !py-3 hover:!scale-105 active:!scale-95 !transition-all !shadow-[0_0_20px_rgba(6,182,212,0.4)] disabled:!opacity-50 disabled:!cursor-not-allowed shrink-0 w-full sm:w-auto"
-                              />
+    
+                     <div class="flex flex-col gap-5">
+                         <!-- Weapon Selector -->
+                         <div class="space-y-2">
+                            <label class="text-xs uppercase font-bold text-indigo-300 tracking-wider ml-1 flex justify-between">
+                                <span>Select Weapon</span>
+                                <span class="text-[10px] text-slate-500 font-normal normal-case italic">Choose your destruction style</span>
+                            </label>
+                            <div class="grid grid-cols-3 gap-2">
+                                <!-- Hammer -->
+                                <button @click="selectedWeapon = 'standard'" :class="{'!bg-slate-700 !border-indigo-500 ring-1 ring-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.3)]': selectedWeapon === 'standard'}" class="flex flex-col items-center gap-1 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 hover:bg-slate-700/60 transition-all group relative overflow-hidden">
+                                    <div v-if="selectedWeapon === 'standard'" class="absolute inset-0 bg-indigo-500/10"></div>
+                                    <i class="pi pi-hammer text-2xl relative z-10" :class="selectedWeapon === 'standard' ? 'text-indigo-400' : 'text-slate-500 group-hover:text-slate-300'"></i>
+                                    <span class="text-[10px] uppercase font-bold text-slate-400 relative z-10">Hammer</span>
+                                </button>
+                                
+                                <!-- C4 -->
+                                <button @click="selectedWeapon = 'random'" :class="{'!bg-slate-700 !border-orange-500 ring-1 ring-orange-500/50 shadow-[0_0_15px_rgba(249,115,22,0.3)]': selectedWeapon === 'random'}" class="flex flex-col items-center gap-1 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 hover:bg-slate-700/60 transition-all group relative overflow-hidden">
+                                    <div v-if="selectedWeapon === 'random'" class="absolute inset-0 bg-orange-500/10"></div>
+                                    <i class="pi pi-box text-2xl relative z-10" :class="selectedWeapon === 'random' ? 'text-orange-400' : 'text-slate-500 group-hover:text-slate-300'"></i>
+                                    <span class="text-[10px] uppercase font-bold text-slate-400 relative z-10">C4</span>
+                                </button>
+                                
+                                <!-- Laser -->
+                                <button @click="selectedWeapon = 'targeted'" :class="{'!bg-slate-700 !border-cyan-500 ring-1 ring-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.3)]': selectedWeapon === 'targeted'}" class="flex flex-col items-center gap-1 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 hover:bg-slate-700/60 transition-all group relative overflow-hidden">
+                                    <div v-if="selectedWeapon === 'targeted'" class="absolute inset-0 bg-cyan-500/10"></div>
+                                    <i class="pi pi-bolt text-2xl relative z-10" :class="selectedWeapon === 'targeted' ? 'text-cyan-400' : 'text-slate-500 group-hover:text-slate-300'"></i>
+                                    <span class="text-[10px] uppercase font-bold text-slate-400 relative z-10">Laser</span>
+                                </button>
+                            </div>
                          </div>
-                         <div class="flex justify-between text-xs font-mono px-1">
-                            <span class="text-slate-500">Available: Wallet Balance (Unlimited)</span>
-                            <span class="text-indigo-400">Max Damage: {{ formatCurrency(maxPayment) }}</span>
-                         </div>
-                    </div>
-                 </div>
+    
+                          <!-- Amount Input -->
+                        <div class="space-y-2">
+                             <label class="text-xs uppercase font-bold text-indigo-300 tracking-wider ml-1">Firepower (Amount)</label>
+                             <div class="flex flex-col sm:flex-row gap-3">
+                                  <InputNumber v-model="paymentAmount" mode="currency" currency="GBP" locale="en-GB" placeholder="£0.00" class="flex-1 w-full" inputClass="!bg-slate-900/50 !border-slate-700/50 !rounded-xl !text-lg !font-mono !text-white focus:!ring-2 focus:!ring-indigo-500/50 !transition-all w-full" :min="0" :max="maxPayment" :minFractionDigits="2" :maxFractionDigits="2" />
+                                  
+                                  <!-- Universal Engage Button -->
+                                  <Button icon="pi pi-crosshairs" label="ENGAGE" @click="handleWeaponActivation" :disabled="!paymentAmount || paymentAmount <= 0"
+                                    class="!bg-gradient-to-r !from-indigo-600 !to-purple-600 !border-none !rounded-xl !font-black !tracking-wider !px-8 !py-3 hover:!scale-105 active:!scale-95 !transition-all !shadow-[0_0_20px_rgba(99,102,241,0.4)] disabled:!opacity-50 disabled:!cursor-not-allowed shrink-0 w-full sm:w-auto"
+                                  />
+                             </div>
+                             <div class="flex justify-between text-xs font-mono px-1">
+                                <span class="text-slate-500">Available: Wallet Balance (Unlimited)</span>
+                                <span class="text-indigo-400">Max Damage: {{ formatCurrency(maxPayment) }}</span>
+                             </div>
+                        </div>
+                     </div>
+                </div>
             </div>
-        </div>
 
         <!-- Reinforcements (Add Debt) -->
         <div class="glass-panel rounded-2xl p-6 relative overflow-hidden">
