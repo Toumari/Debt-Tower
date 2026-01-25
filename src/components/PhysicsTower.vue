@@ -176,9 +176,10 @@ onMounted(() => {
     Matter.Runner.run(runner, engine)
     Matter.Render.run(render)
 
-    // 6. Initial Sync & Restack
-    syncBodies()
-    setTimeout(restack, 100)
+    // 6. Initial Setup - Force a resize to set everything up correctly
+    setTimeout(() => {
+        handleResize()
+    }, 200)
 
     // Toggle God Mode vs Laser Mode
     watch(() => props.targetingMode, (val) => {
@@ -393,9 +394,18 @@ function createBoundaries(w: number, h: number) {
         friction: 0.5 
     })
     
-    // Walls (Invisible-ish but keep blocks in)
-    const leftWall = Matter.Bodies.rectangle(-25, h / 2, 50, h * 2, wallOptions)
-    const rightWall = Matter.Bodies.rectangle(w + 25, h / 2, 50, h * 2, wallOptions)
+    // Walls (Make them visible for debugging mobile issues)
+    const wallColor = 'rgba(255, 255, 255, 0.2)'
+    const leftWall = Matter.Bodies.rectangle(0, h / 2, 50, h * 2, { 
+        isStatic: true,
+        render: { fillStyle: wallColor, opacity: 1 },
+        friction: 0.0
+    })
+    const rightWall = Matter.Bodies.rectangle(w, h / 2, 50, h * 2, { 
+        isStatic: true,
+        render: { fillStyle: wallColor, opacity: 1 },
+        friction: 0.0
+    })
 
     walls = [floor, leftWall, rightWall]
     Matter.World.add(world, walls)
@@ -406,26 +416,26 @@ function handleResize() {
     const w = container.value.clientWidth
     const h = container.value.clientHeight
 
+    // Force exact canvas syncing
     render.canvas.width = w
     render.canvas.height = h
     render.options.width = w
     render.options.height = h
     
-    updateBlockDimensions() // Update width/height refs
+    updateBlockDimensions() 
     createBoundaries(w, h)
     
-    // Recreate blocks with new size? Or just scale them?
-    // Matter.js bodies don't easy scale well with mass/density preservation if we just scale the vertices.
-    // It might be cleaner to full re-sync (recreate) everyone.
-    
-    // Clear all bodies and re-sync
+    // Immediate Re-center of everything
     Matter.World.remove(world, Array.from(bodyMap.values()))
     bodyMap.clear()
+    
+    // Cancel any pending syncs
+    // Force invalidation
     
     setTimeout(() => {
         syncBodies()
         restack()
-    }, 50)
+    }, 100)
 }
 
 function syncBodies() {
