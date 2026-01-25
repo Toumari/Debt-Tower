@@ -44,12 +44,15 @@ function updateBlockDimensions() {
     if (!container.value) return
     const w = container.value.clientWidth
     
-    // Mobile Breakpoint (approx < 768px for "md")
+    // Mobile Breakpoint
     if (w < 600) {
-        // Smaller blocks for mobile
-        // Try to fit at least 6-8 cols
-        blockWidth.value = Math.max(30, Math.floor(w / 10))
-        blockHeight.value = Math.max(15, Math.floor(blockWidth.value * 0.5))
+        // Aggressively smaller for mobile
+        // Target ~12 columns to look like a tower, not just a stack of bricks
+        const targetCols = 10
+        const rawWidth = Math.floor((w - 40) / targetCols) // -40 for padding
+        
+        blockWidth.value = Math.max(20, rawWidth) // Min 20px
+        blockHeight.value = Math.max(10, Math.floor(blockWidth.value * 0.6))
     } else {
         blockWidth.value = 50
         blockHeight.value = 25
@@ -576,11 +579,20 @@ function triggerChaos() {
     // Disable gravity briefly
     engine.world.gravity.y = -0.5 // Float up slightly
     
+    // Scale force based on block size (approximate mass scaling)
+    // Standard size 50 -> Factor 1.0
+    // Mobile size 25 -> Factor ~0.25 (Area/Mass squared effect)
+    const baseForceX = 0.2
+    const baseForceY = 0.1
+    const scaleFactor = (blockWidth.value * blockHeight.value) / (50 * 25) 
+
     Matter.Composite.allBodies(world).forEach(body => {
         if (!body.isStatic) {
+            
+            // Apply scaled force
             Matter.Body.applyForce(body, body.position, {
-                x: (Math.random() - 0.5) * 0.2,
-                y: -0.05 - Math.random() * 0.1 
+                x: (Math.random() - 0.5) * baseForceX * scaleFactor,
+                y: (-0.05 - Math.random() * baseForceY) * scaleFactor
             })
         }
     })
