@@ -35,6 +35,20 @@ const BLOCK_WIDTH = 50
 const BLOCK_HEIGHT = 25
 
 const isShaking = ref(false)
+const warningMsg = ref('')
+let warningTimeout: number | null = null
+
+function showWarning(msg: string) {
+    warningMsg.value = msg
+    playSfx('crumble') // Error sound
+    triggerShake()
+    
+    if (warningTimeout) clearTimeout(warningTimeout)
+    warningTimeout = setTimeout(() => {
+        warningMsg.value = ''
+    }, 2000)
+}
+
 let resizeObserver: ResizeObserver | null = null
 
 function triggerShake() {
@@ -187,7 +201,19 @@ onMounted(() => {
         
         if (target) {
             const blockId = (target as any).plugin.blockId
-            emit('target-confirmed', blockId)
+            
+            // Check value constraint
+            // We need to look up the actual block data from the store or body plugin if it has current value
+            // The body plugin only has ID and color. We need to find the block in the store.
+            const block = store.towerBlocks.find(b => b.id === blockId)
+            
+            if (block) {
+                if (props.paymentAmount > block.current) {
+                     showWarning('Laser power exceeds block value!')
+                     return
+                }
+                emit('target-confirmed', blockId)
+            }
         } else {
             // Missed? Maybe cancel?
             // emit('cancel-targeting')
@@ -233,6 +259,13 @@ onMounted(() => {
         handleResize()
     })
     resizeObserver.observe(container.value)
+
+    // 8. ESC to Cancel
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && props.targetingMode) {
+            emit('cancel-targeting')
+        }
+    })
 
     // 7. Victory Watcher
     watch(() => store.totalBlocks, (newVal, oldVal) => {
@@ -439,10 +472,20 @@ function restack() {
     })
 }
 
+const isChaosCooldown = ref(false)
+
 function triggerChaos() {
+    if (isChaosCooldown.value) return
+    
+    isChaosCooldown.value = true
     isShaking.value = true
     playSfx('attack') // Chaos sound
     setTimeout(() => isShaking.value = false, 500)
+    
+    // Cooldown reset
+    setTimeout(() => {
+        isChaosCooldown.value = false
+    }, 2000)
 
     // Disable gravity briefly
     engine.world.gravity.y = -0.5 // Float up slightly
@@ -472,10 +515,11 @@ function triggerChaos() {
                 <!-- Smash Button -->
                 <button 
                     @click="triggerChaos"
-                    class="bg-red-500/20 hover:bg-red-500/80 text-white p-2 rounded-full backdrop-blur-sm transition-all shadow-lg border border-red-500/50 hover:scale-110 active:scale-95 group/smash"
+                    :disabled="isChaosCooldown"
+                    class="bg-red-500/20 hover:bg-red-500/80 text-white p-2 rounded-full backdrop-blur-sm transition-all shadow-lg border border-red-500/50 hover:scale-110 active:scale-95 group/smash disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed disabled:hover:scale-100"
                     title="SMASH!"
                 >
-                    <i class="pi pi-bolt text-xl animate-pulse group-hover/smash:animate-none"></i>
+                    <i class="pi pi-bolt text-xl animate-pulse group-hover/smash:animate-none" :class="{'!animate-none text-slate-400': isChaosCooldown}"></i>
                 </button>
 
                 <!-- Restack Button -->
@@ -499,11 +543,21 @@ function triggerChaos() {
                      <div>
                          <p class="text-cyan-400 font-black uppercase text-xs tracking-widest">Targeting Active</p>
                          <p class="text-white font-mono text-sm leading-none mt-1">Select Block to Destroy (£{{ paymentAmount }})</p>
+                         <p class="text-[10px] text-slate-400 mt-1 font-mono">Press <span class="text-white font-bold">ESC</span> to cancel</p>
                      </div>
                      <button @click="emit('cancel-targeting')" class="ml-2 hover:bg-white/10 p-2 rounded-full transition-colors text-white">
                          <i class="pi pi-times"></i>
                      </button>
                 </div>
+            </div>
+
+            <!-- Warning Overlay -->
+            <div v-if="warningMsg" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none">
+                 <div class="bg-red-500/90 text-white px-6 py-4 rounded-xl shadow-2xl backdrop-blur-md animate-shake flex flex-col items-center">
+                      <i class="pi pi-exclamation-triangle text-4xl mb-2"></i>
+                      <h3 class="font-black uppercase tracking-widest text-lg">Target Invalid</h3>
+                      <p class="font-mono text-sm">{{ warningMsg }}</p>
+                 </div>
             </div>
 
             <!-- Victory Overlay -->
