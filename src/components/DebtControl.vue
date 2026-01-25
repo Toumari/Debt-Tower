@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useDebtStore, type Debt } from '../stores/debtStore'
+import { useGameJuice } from '../composables/useGameJuice'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import Button from 'primevue/button'
@@ -9,12 +10,16 @@ import Column from 'primevue/column'
 import Select from 'primevue/select'
 
 const store = useDebtStore()
+const { playSfx, shake } = useGameJuice()
+const emit = defineEmits(['enable-targeting'])
 
 const newDebtName = ref('')
 const newDebtAmount = ref<number | null>(null)
 const newInterestRate = ref<number>(0)
 const paymentAmount = ref<number | null>(null)
 const selectedDebt = ref<Debt | null>(null)
+
+const selectedWeapon = ref<'standard' | 'random' | 'targeted'>('standard')
 
 function addNewDebt() {
     if (newDebtName.value && newDebtAmount.value) {
@@ -27,8 +32,24 @@ function addNewDebt() {
 
 function handlePayment() {
     if (paymentAmount.value && paymentAmount.value > 0) {
-        store.makePayment(paymentAmount.value, selectedDebt.value?.id)
+        // Juice based on weapon
+        if (selectedWeapon.value === 'random') {
+            playSfx('dynamite')
+            shake(800)
+             store.makePayment(paymentAmount.value, undefined, 'random')
+        } else {
+            playSfx('attack') // Standard
+            shake(500)
+            store.makePayment(paymentAmount.value, selectedDebt.value?.id, 'standard')
+        }
+        
         paymentAmount.value = null
+    }
+}
+
+function toggleTargeting() {
+    if (paymentAmount.value && paymentAmount.value > 0) {
+        emit('enable-targeting', paymentAmount.value)
     }
 }
 
@@ -106,9 +127,36 @@ const totalActiveDebt = computed(() => {
                  </div>
 
                  <div class="flex flex-col gap-5">
-                    <!-- Target Selector -->
-                    <div class="space-y-2">
-                        <label class="text-xs uppercase font-bold text-indigo-300 tracking-wider ml-1">Select Target</label>
+                     <!-- Weapon Selector -->
+                     <div class="space-y-2">
+                        <label class="text-xs uppercase font-bold text-indigo-300 tracking-wider ml-1 flex justify-between">
+                            <span>Select Weapon</span>
+                            <span class="text-[10px] text-slate-500 font-normal normal-case italic">Choose your destruction style</span>
+                        </label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <button @click="selectedWeapon = 'standard'" :class="{'!bg-slate-700 !border-indigo-500 ring-1 ring-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.3)]': selectedWeapon === 'standard'}" class="flex flex-col items-center gap-1 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 hover:bg-slate-700/60 transition-all group relative overflow-hidden">
+                                <div v-if="selectedWeapon === 'standard'" class="absolute inset-0 bg-indigo-500/10"></div>
+                                <i class="pi pi-hammer text-2xl relative z-10" :class="selectedWeapon === 'standard' ? 'text-indigo-400' : 'text-slate-500 group-hover:text-slate-300'"></i>
+                                <span class="text-[10px] uppercase font-bold text-slate-400 relative z-10">Hammer</span>
+                            </button>
+                            
+                            <button @click="selectedWeapon = 'random'" :class="{'!bg-slate-700 !border-orange-500 ring-1 ring-orange-500/50 shadow-[0_0_15px_rgba(249,115,22,0.3)]': selectedWeapon === 'random'}" class="flex flex-col items-center gap-1 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 hover:bg-slate-700/60 transition-all group relative overflow-hidden">
+                                <div v-if="selectedWeapon === 'random'" class="absolute inset-0 bg-orange-500/10"></div>
+                                <i class="pi pi-box text-2xl relative z-10" :class="selectedWeapon === 'random' ? 'text-orange-400' : 'text-slate-500 group-hover:text-slate-300'"></i>
+                                <span class="text-[10px] uppercase font-bold text-slate-400 relative z-10">Dynamite</span>
+                            </button>
+                            
+                            <button @click="selectedWeapon = 'targeted'" :class="{'!bg-slate-700 !border-cyan-500 ring-1 ring-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.3)]': selectedWeapon === 'targeted'}" class="flex flex-col items-center gap-1 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 hover:bg-slate-700/60 transition-all group relative overflow-hidden">
+                                <div v-if="selectedWeapon === 'targeted'" class="absolute inset-0 bg-cyan-500/10"></div>
+                                <i class="pi pi-bolt text-2xl relative z-10" :class="selectedWeapon === 'targeted' ? 'text-cyan-400' : 'text-slate-500 group-hover:text-slate-300'"></i>
+                                <span class="text-[10px] uppercase font-bold text-slate-400 relative z-10">Laser</span>
+                            </button>
+                        </div>
+                     </div>
+
+                     <!-- Target Selector -->
+                     <div class="space-y-2" v-if="selectedWeapon !== 'random'">
+                        <label class="text-xs uppercase font-bold text-indigo-300 tracking-wider ml-1">Select Priority Debt</label>
                         <Select v-model="selectedDebt" :options="store.debts" optionLabel="name" placeholder="Auto-Target (Highest Interest)" class="w-full !bg-slate-900/50 !border-slate-700/50 !rounded-xl !text-sm hover:!border-indigo-500/50 transition-colors" :pt="{
                             overlay: { class: 'bg-slate-900 border border-slate-700 !rounded-xl shadow-2xl backdrop-blur-xl' },
                             list: { class: 'p-1' },
@@ -135,12 +183,20 @@ const totalActiveDebt = computed(() => {
                         </Select>
                     </div>
 
-                    <!-- Amount Input -->
+                     <!-- Amount Input -->
                     <div class="space-y-2">
                          <label class="text-xs uppercase font-bold text-indigo-300 tracking-wider ml-1">Firepower (Amount)</label>
-                         <div class="flex gap-3">
-                              <InputNumber v-model="paymentAmount" mode="currency" currency="GBP" locale="en-GB" placeholder="£0.00" class="flex-1" inputClass="!bg-slate-900/50 !border-slate-700/50 !rounded-xl !text-lg !font-mono !text-white focus:!ring-2 focus:!ring-indigo-500/50 !transition-all" :min="0" :max="maxPayment" :minFractionDigits="2" :maxFractionDigits="2" />
-                              <Button icon="pi pi-send" label="PAY" @click="handlePayment" :disabled="!paymentAmount || paymentAmount <= 0" class="!bg-gradient-to-r !from-red-600 !to-pink-600 !border-none !rounded-xl !font-black !tracking-wider !px-6 hover:!scale-105 active:!scale-95 !transition-all !shadow-[0_0_20px_rgba(236,72,153,0.3)] disabled:!opacity-50 disabled:!cursor-not-allowed" />
+                         <div class="flex flex-col sm:flex-row gap-3">
+                              <InputNumber v-model="paymentAmount" mode="currency" currency="GBP" locale="en-GB" placeholder="£0.00" class="flex-1 w-full" inputClass="!bg-slate-900/50 !border-slate-700/50 !rounded-xl !text-lg !font-mono !text-white focus:!ring-2 focus:!ring-indigo-500/50 !transition-all w-full" :min="0" :max="maxPayment" :minFractionDigits="2" :maxFractionDigits="2" />
+                              
+                              <!-- Dynamic Button -->
+                              <Button v-if="selectedWeapon !== 'targeted'" icon="pi pi-send" :label="selectedWeapon === 'random' ? 'DETONATE' : 'PAY'" @click="handlePayment" :disabled="!paymentAmount || paymentAmount <= 0" 
+                                class="!border-none !rounded-xl !font-black !tracking-wider !px-8 !py-3 hover:!scale-105 active:!scale-95 !transition-all !shadow-lg disabled:!opacity-50 disabled:!cursor-not-allowed shrink-0 w-full sm:w-auto"
+                                :class="selectedWeapon === 'random' ? '!bg-gradient-to-r !from-orange-600 !to-red-600 shadow-[0_0_20px_rgba(249,115,22,0.4)]' : '!bg-gradient-to-r !from-indigo-600 !to-purple-600 shadow-[0_0_20px_rgba(99,102,241,0.4)]'"
+                              />
+                              <Button v-else icon="pi pi-bullseye" label="ENGAGE" @click="toggleTargeting" :disabled="!paymentAmount || paymentAmount <= 0"
+                                class="!bg-gradient-to-r !from-cyan-600 !to-blue-600 !border-none !rounded-xl !font-black !tracking-wider !px-8 !py-3 hover:!scale-105 active:!scale-95 !transition-all !shadow-[0_0_20px_rgba(6,182,212,0.4)] disabled:!opacity-50 disabled:!cursor-not-allowed shrink-0 w-full sm:w-auto"
+                              />
                          </div>
                          <div class="flex justify-between text-xs font-mono px-1">
                             <span class="text-slate-500">Available: Wallet Balance (Unlimited)</span>
@@ -168,7 +224,7 @@ const totalActiveDebt = computed(() => {
                      </div>
                      <div class="space-y-2">
                         <label class="text-xs uppercase font-bold text-slate-500 ml-1">Amount</label>
-                        <InputNumber v-model="newDebtAmount" mode="currency" currency="GBP" locale="en-GB" placeholder="£0.00" class="w-full" inputClass="!bg-slate-900/30 !border-slate-700/50 !rounded-lg !text-sm focus:!bg-slate-900/80 !transition-colors !text-white" :minFractionDigits="2" :maxFractionDigits="2" />
+                        <InputNumber v-model="newDebtAmount" mode="currency" currency="GBP" locale="en-GB" placeholder="£0.00" class="w-full" inputClass="!bg-slate-900/30 !border-slate-700/50 !rounded-lg !text-sm focus:!bg-slate-900/80 !transition-colors !text-white" :minFractionDigits="2" :maxFractionDigits="2" :min="1" />
                      </div>
                  </div>
                  <div class="space-y-2">

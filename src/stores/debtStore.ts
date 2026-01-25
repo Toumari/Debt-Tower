@@ -21,10 +21,9 @@ export interface Debt {
 }
 
 const COLORS = [
-    '#EF4444', // Red
-    '#F59E0B', // Amber
+    '#3B82F6', // Blue (First is now Blue, safe from Red)
     '#10B981', // Emerald
-    '#3B82F6', // Blue
+    '#F59E0B', // Amber
     '#8B5CF6', // Purple
     '#EC4899', // Pink
     '#06B6D4', // Cyan
@@ -39,8 +38,8 @@ export const useDebtStore = defineStore('debt', () => {
     const BLOCK_VALUE = 100
 
     // Getters
-    const totalDebt = computed(() => debts.value.reduce((sum, d) => sum + d.amount, 0))
-    const totalPaid = computed(() => debts.value.reduce((sum, d) => sum + d.paid, 0))
+    const totalDebt = computed(() => debts.value.reduce((sum: number, d: Debt) => sum + d.amount, 0))
+    const totalPaid = computed(() => debts.value.reduce((sum: number, d: Debt) => sum + d.paid, 0))
     const remainingDebt = computed(() => totalDebt.value - totalPaid.value)
 
     // Tower Physics Blocks
@@ -48,8 +47,8 @@ export const useDebtStore = defineStore('debt', () => {
     const towerBlocks = computed(() => {
         const activeBlocks: any[] = []
 
-        debts.value.forEach(debt => {
-            debt.blocks.forEach(block => {
+        debts.value.forEach((debt: Debt) => {
+            debt.blocks.forEach((block: Block) => {
                 if (block.current > 0) {
                     activeBlocks.push({
                         id: block.id,
@@ -127,33 +126,50 @@ export const useDebtStore = defineStore('debt', () => {
         saveState()
     }
 
-    // Payment Logic - Random Destruction
-    function makePayment(amount: number, targetDebtId?: string) {
+    // Payment Logic - Strategies
+    function makePayment(amount: number, targetDebtId?: string, strategy: 'standard' | 'random' | 'targeted' = 'standard', targetBlockId?: string) {
         if (remainingDebt.value <= 0) return
 
         let amountLeft = amount
-
-        // Target list: specific debt or all debts (default top down? or random?)
         let targetBlocks: Block[] = []
 
-        if (targetDebtId && targetDebtId !== 'random') {
-            const debt = debts.value.find(d => d.id === targetDebtId)
-            if (debt) {
-                targetBlocks = debt.blocks.filter(b => b.current > 0)
-            }
-        } else {
-            // Global Random (Fallback if no target selected)
-            // Flatten all active blocks
-            debts.value.forEach(d => {
-                targetBlocks.push(...d.blocks.filter(b => b.current > 0))
+        // 1. SELECT TARGETS BASED ON STRATEGY
+        if (strategy === 'targeted' && targetBlockId) {
+            // Precise Laser Shot
+            debts.value.forEach((d: Debt) => {
+                const block = d.blocks.find((b: Block) => b.id === targetBlockId)
+                if (block && block.current > 0) {
+                    targetBlocks.push(block)
+                }
             })
         }
+        else if (strategy === 'random') {
+            // Dynamite Chaos - Pick N random blocks across entire tower
+            const allActive = debts.value.flatMap((d: Debt) => d.blocks.filter((b: Block) => b.current > 0))
+            // Shuffle and pick
+            targetBlocks = allActive.sort(() => 0.5 - Math.random())
+        }
+        else {
+            // Standard (Hammer) - Top Down
+            if (targetDebtId && targetDebtId !== 'random') {
+                const debt = debts.value.find((d: Debt) => d.id === targetDebtId)
+                if (debt) {
+                    targetBlocks = debt.blocks.filter((b: Block) => b.current > 0)
+                }
+            } else {
+                // Global Standard (Top Down - we usually just grab all and filter by current > 0)
+                debts.value.forEach((d: Debt) => {
+                    targetBlocks.push(...d.blocks.filter((b: Block) => b.current > 0))
+                })
+            }
+        }
 
-        // Apply damage to smallest blocks first
+        // 2. APPLY DAMAGE
+        // For Random/Dynamite, we distribute damage across multiple blocks? Or Focus one by one from the shuffled list?
+        // Let's go one by one for now to ensure we use up the money efficiently.
+
         while (amountLeft > 0 && targetBlocks.length > 0) {
-            // Pick first (smallest)
             const block = targetBlocks[0]
-
             if (!block) break;
 
             const damage = Math.min(block.current, amountLeft)
@@ -164,17 +180,10 @@ export const useDebtStore = defineStore('debt', () => {
             // Update parent debt paid amount
             const parentDebt = debts.value.find(d => d.id === block.debtId)
             if (parentDebt) {
-                // If we paid PRINCIPAL, we also need to reduce INTEREST blocks
                 if (block.type === 'principal') {
                     parentDebt.paid += damage
 
-                    // Recalculate Interest Reduction
-                    // ratio: damage / total_principal * total_interest?
-                    // Simpler: 
-                    // oldPrincipal = parentDebt.amount - (parentDebt.paid - damage)
-                    // newPrincipal = parentDebt.amount - parentDebt.paid
-                    // reducedInterest = damage * (rate / 100)
-
+                    // Interest Reduction Logic
                     const interestReduction = damage * (parentDebt.interestRate / 100)
                     if (interestReduction > 0) {
                         reduceInterestBlocks(parentDebt, interestReduction)
@@ -182,9 +191,8 @@ export const useDebtStore = defineStore('debt', () => {
                 }
             }
 
-            // If block destroyed, remove from target list
             if (block.current <= 0) {
-                targetBlocks.shift() // Remove the first element since it's destroyed
+                targetBlocks.shift()
             }
         }
 
@@ -192,12 +200,14 @@ export const useDebtStore = defineStore('debt', () => {
         saveState()
     }
 
+    function paySpecificBlock(blockId: string, amount: number) {
+        makePayment(amount, undefined, 'targeted', blockId)
+    }
+
     function reduceInterestBlocks(debt: Debt, amount: number) {
         let amountToRemove = amount
-        const interestBlocks = debt.blocks.filter(b => b.type === 'interest' && b.current > 0)
-
-        // destroy smallest interest blocks first too?
-        interestBlocks.sort((a, b) => a.current - b.current)
+        const interestBlocks = debt.blocks.filter((b: Block) => b.type === 'interest' && b.current > 0)
+        interestBlocks.sort((a: Block, b: Block) => a.current - b.current)
 
         while (amountToRemove > 0 && interestBlocks.length > 0) {
             const block = interestBlocks[0]
@@ -213,9 +223,11 @@ export const useDebtStore = defineStore('debt', () => {
     }
 
     function resetProgress() {
-        debts.value.forEach(d => {
+        debts.value.forEach((d: Debt) => {
             d.paid = 0
-            d.blocks.forEach(b => b.current = b.max)
+            d.blocks.forEach((b: Block) => {
+                b.current = b.max
+            })
         })
         totalPaidGame.value = 0
         saveState()
@@ -260,6 +272,7 @@ export const useDebtStore = defineStore('debt', () => {
         xp,
         addDebt,
         makePayment,
+        paySpecificBlock,
         resetProgress,
         clearDebts
     }

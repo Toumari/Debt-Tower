@@ -2,9 +2,21 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import Matter from 'matter-js'
 import { useDebtStore } from '../stores/debtStore'
+import { useGameJuice } from '../composables/useGameJuice'
 
 const store = useDebtStore()
+const { playSfx, triggerConfetti } = useGameJuice()
 const container = ref<HTMLElement | null>(null)
+
+const props = defineProps<{
+    targetingMode: boolean,
+    paymentAmount: number
+}>()
+
+const emit = defineEmits<{
+    (e: 'target-confirmed', blockId: string): void
+    (e: 'cancel-targeting'): void
+}>()
 
 // Physics Engine Refs
 let engine: Matter.Engine
@@ -132,16 +144,103 @@ onMounted(() => {
     syncBodies()
     setTimeout(restack, 100)
 
+    // Toggle God Mode vs Laser Mode
+    watch(() => props.targetingMode, (val) => {
+        if (mouseConstraint?.constraint) {
+            // Disable dragging when targeting
+            mouseConstraint.constraint.stiffness = val ? 0 : 0.2
+        }
+        if (val) {
+             container.value?.style.setProperty('cursor', 'none')
+        } else {
+             container.value?.style.setProperty('cursor', 'default')
+        }
+    })
+
     // 5. Watch for store changes
     watch(() => store.towerBlocks, () => {
         syncBodies()
     }, { deep: true })
 
-    // 6. Resize Observer
+    // 6. Targeting Visuals & Logic
+    const mousePosition = { x: 0, y: 0 }
+    
+    // Track mouse for Laser Line
+    render.canvas.addEventListener('mousemove', (e) => {
+        if (props.targetingMode) {
+            const rect = render.canvas.getBoundingClientRect()
+            mousePosition.x = (e.clientX - rect.left) * (render.canvas.width / rect.width)
+            mousePosition.y = (e.clientY - rect.top) * (render.canvas.height / rect.height)
+        }
+    })
+
+    // Click to Shoot
+    render.canvas.addEventListener('mousedown', () => {
+        if (!props.targetingMode) return
+        
+        // Find body under cursor
+        const bodies = Matter.Composite.allBodies(engine.world)
+        const hit = Matter.Query.point(bodies, mousePosition)
+        
+        // Filter out walls/static
+        const target = hit.find(b => !b.isStatic && (b as any).plugin?.blockId)
+        
+        if (target) {
+            const blockId = (target as any).plugin.blockId
+            emit('target-confirmed', blockId)
+        } else {
+            // Missed? Maybe cancel?
+            // emit('cancel-targeting')
+        }
+    })
+
+    Matter.Events.on(render, 'afterRender', () => {
+        if (!props.targetingMode) return
+
+        const ctx = render.context
+        
+        // Draw Crosshair
+        ctx.strokeStyle = '#06b6d4' // Cyan
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(mousePosition.x, mousePosition.y, 20, 0, 2 * Math.PI)
+        ctx.stroke()
+        
+        // Draw Cross lines
+        ctx.beginPath()
+        ctx.moveTo(mousePosition.x - 25, mousePosition.y)
+        ctx.lineTo(mousePosition.x + 25, mousePosition.y)
+        ctx.moveTo(mousePosition.x, mousePosition.y - 25)
+        ctx.lineTo(mousePosition.x, mousePosition.y + 25)
+        ctx.stroke()
+        
+        // Draw Laser Line from bottom center (or top?)
+        const startX = render.canvas.width / 2
+        const startY = render.canvas.height
+        
+        ctx.beginPath()
+        ctx.moveTo(startX, startY)
+        ctx.lineTo(mousePosition.x, mousePosition.y)
+        ctx.strokeStyle = 'rgba(6, 182, 212, 0.4)'
+        ctx.lineWidth = 4
+        ctx.setLineDash([10, 10]) // Dashed laser guide
+        ctx.stroke()
+        ctx.setLineDash([]) // Reset
+    })
+
+    // 7. Resize Observer
     resizeObserver = new ResizeObserver(() => {
         handleResize()
     })
     resizeObserver.observe(container.value)
+
+    // 7. Victory Watcher
+    watch(() => store.totalBlocks, (newVal, oldVal) => {
+        if (newVal === 0 && oldVal > 0 && store.totalPaid > 0) {
+            playSfx('victory')
+            triggerConfetti()
+        }
+    })
 })
 
 onUnmounted(() => {
@@ -224,6 +323,7 @@ function syncBodies() {
             const color = (body as any).plugin.color || '#fff'
             spawnDebris(x, y, color)
             triggerShake()
+            playSfx('crumble') // <--- Sound Effect
 
             Matter.World.remove(world, body)
             bodyMap.delete(id)
@@ -341,6 +441,7 @@ function restack() {
 
 function triggerChaos() {
     isShaking.value = true
+    playSfx('attack') // Chaos sound
     setTimeout(() => isShaking.value = false, 500)
 
     // Disable gravity briefly
@@ -391,12 +492,36 @@ function triggerChaos() {
                 </div>
             </div>
 
+            <!-- Targeting Overlay -->
+            <div v-if="targetingMode" class="absolute top-4 left-4 z-40 pointer-events-auto">
+                <div class="flex items-center gap-3 bg-slate-900/80 backdrop-blur rounded-xl p-3 border border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.3)]">
+                     <i class="pi pi-bolt text-cyan-400 animate-pulse text-2xl"></i>
+                     <div>
+                         <p class="text-cyan-400 font-black uppercase text-xs tracking-widest">Targeting Active</p>
+                         <p class="text-white font-mono text-sm leading-none mt-1">Select Block to Destroy (£{{ paymentAmount }})</p>
+                     </div>
+                     <button @click="emit('cancel-targeting')" class="ml-2 hover:bg-white/10 p-2 rounded-full transition-colors text-white">
+                         <i class="pi pi-times"></i>
+                     </button>
+                </div>
+            </div>
+
             <!-- Victory Overlay -->
-            <div v-if="store.totalBlocks === 0 && store.totalPaid > 0" class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none bg-black/20 backdrop-blur-sm">
+            <div v-if="store.totalBlocks === 0 && store.totalPaid > 0" class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-auto bg-black/40 backdrop-blur-md transition-all duration-1000">
                  <h2 class="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-orange-400 to-yellow-300 mb-4 animate-bounce drop-shadow-[0_0_25px_rgba(234,179,8,0.6)]">
                     DEBT FREE!
                 </h2>
-                <p class="text-white text-xl font-bold tracking-widest uppercase animate-pulse">Mission Accomplished</p>
+                <p class="text-white text-xl font-bold tracking-widest uppercase animate-pulse mb-8">Mission Accomplished</p>
+                
+                <button 
+                    @click="store.resetProgress(); playSfx('charge')"
+                    class="group relative px-8 py-3 bg-white/10 overflow-hidden rounded-full font-black uppercase tracking-widest transition-all hover:bg-white/20 hover:scale-105 active:scale-95 border border-white/50"
+                >
+                    <div class="absolute inset-0 w-0 bg-gradient-to-r from-transparent via-white/40 to-transparent group-hover:w-full transition-[width] duration-500 skew-x-12"></div>
+                    <span class="flex items-center gap-2 drop-shadow-md">
+                        <i class="pi pi-replay"></i> Play Again
+                    </span>
+                </button>
             </div>
         </div>
 
@@ -408,7 +533,7 @@ function triggerChaos() {
              </div>
              
              <!-- Interest Legend -->
-             <div class="flex items-center gap-2 bg-red-900/20 px-2.5 py-1 rounded-full border border-red-500/20">
+             <div v-if="store.debts.some(d => d.blocks.some(b => b.type === 'interest' && b.current > 0))" class="flex items-center gap-2 bg-red-900/20 px-2.5 py-1 rounded-full border border-red-500/20">
                   <div class="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(220,38,38,0.5)] bg-red-600"></div>
                   <span class="text-xs text-red-200 font-bold tracking-wide">Interest</span>
              </div>

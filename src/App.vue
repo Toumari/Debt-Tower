@@ -1,12 +1,44 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import PhysicsTower from './components/PhysicsTower.vue'
 import DebtControl from './components/DebtControl.vue'
 import GameStats from './components/GameStats.vue'
 import Panel from 'primevue/panel';
+import { useGameJuice } from './composables/useGameJuice';
+import { useDebtStore } from './stores/debtStore';
+
+const { isShaking, playSfx, shake } = useGameJuice()
+const store = useDebtStore()
+
+const isTargeting = ref(false)
+const pendingPayment = ref(0)
+
+function enableTargeting(amount: number) {
+    isTargeting.value = true
+    pendingPayment.value = amount
+}
+
+function cancelTargeting() {
+    isTargeting.value = false
+    pendingPayment.value = 0
+}
+
+function handleTargetConfirmed(blockId: string) {
+    if (pendingPayment.value > 0) {
+        // Laser Shot
+        playSfx('laser')
+        shake(200)
+        store.paySpecificBlock(blockId, pendingPayment.value)
+        
+        // Reset
+        isTargeting.value = false
+        pendingPayment.value = 0
+    }
+}
 </script>
 
 <template>
-  <main class="min-h-screen bg-aurora text-slate-100 font-sans selection:bg-purple-500 selection:text-white overflow-x-hidden antialiased">
+  <main :class="{ 'shake-effect': isShaking }" class="min-h-screen bg-aurora text-slate-100 font-sans selection:bg-purple-500 selection:text-white overflow-x-hidden antialiased">
     <div class="container mx-auto px-4 py-8 max-w-7xl relative z-10">
       
       <!-- Header -->
@@ -45,13 +77,18 @@ import Panel from 'primevue/panel';
         <!-- On Mobile: Order 2 (Below stats but above DebtControl? Actually standard flow is fine) -->
         <div class="lg:col-span-7 xl:col-span-8 flex flex-col gap-6">
            <GameStats />
-           <PhysicsTower />
+           <PhysicsTower 
+              :targeting-mode="isTargeting" 
+              :payment-amount="pendingPayment"
+              @target-confirmed="handleTargetConfirmed"
+              @cancel-targeting="cancelTargeting"
+           />
         </div>
 
         <!-- Right Col: Controls & Stats -->
         <!-- On Mobile: Order 1? Maybe user wants to see debt first? No, seeing TOWER is key. -->
         <div class="lg:col-span-5 xl:col-span-4 space-y-6">
-          <DebtControl />
+          <DebtControl @enable-targeting="enableTargeting" />
         </div>
 
       </div>
@@ -67,7 +104,11 @@ import Panel from 'primevue/panel';
 /* Global resets or overrides if needed */
 body {
   background-color: #0f172a; 
+  background-image: radial-gradient(at 0% 0%, hsla(253,16%,7%,1) 0, transparent 50%), 
+                    radial-gradient(at 50% 0%, hsla(225,39%,30%,0.3) 0, transparent 50%), 
+                    radial-gradient(at 100% 0%, hsla(339,49%,30%,0.3) 0, transparent 50%);
   margin: 0;
+  min-height: 100vh;
 }
 
 /* Panel Overrides for Dark Theme with Glassmorphism */
@@ -83,5 +124,24 @@ body {
 }
 .p-panel .p-toggleable-content {
     background: rgba(15, 23, 42, 0.3) !important;
+}
+
+@keyframes shake {
+  0% { transform: translate(1px, 1px) rotate(0deg); }
+  10% { transform: translate(-1px, -2px) rotate(-1deg); }
+  20% { transform: translate(-3px, 0px) rotate(1deg); }
+  30% { transform: translate(3px, 2px) rotate(0deg); }
+  40% { transform: translate(1px, -1px) rotate(1deg); }
+  50% { transform: translate(-1px, 2px) rotate(-1deg); }
+  60% { transform: translate(-3px, 1px) rotate(0deg); }
+  70% { transform: translate(3px, 1px) rotate(-1deg); }
+  80% { transform: translate(-1px, -1px) rotate(1deg); }
+  90% { transform: translate(1px, 2px) rotate(0deg); }
+  100% { transform: translate(1px, -2px) rotate(-1deg); }
+}
+
+.shake-effect {
+  animation: shake 0.5s;
+  animation-iteration-count: infinite;
 }
 </style>
