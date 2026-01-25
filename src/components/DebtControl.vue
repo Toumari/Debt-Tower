@@ -1,16 +1,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useDebtStore, type Debt } from '../stores/debtStore'
-import { useGameJuice } from '../composables/useGameJuice'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import Button from 'primevue/button'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
-import Select from 'primevue/select'
 
 const store = useDebtStore()
-const { playSfx, shake } = useGameJuice()
 const emit = defineEmits(['enable-targeting'])
 
 const newDebtName = ref('')
