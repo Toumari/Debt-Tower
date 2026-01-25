@@ -384,20 +384,20 @@ function createBoundaries(w: number, h: number) {
     const floorY = h - 15
     const floor = Matter.Bodies.rectangle(w / 2, floorY, w, 50, { 
         isStatic: true,
-        render: { fillStyle: 'rgba(255, 255, 255, 0.1)', opacity: 1 },
+        render: { fillStyle: 'transparent', opacity: 0 },
         friction: 0.5 
     })
     
-    // Walls (Make them visible for debugging mobile issues)
-    const wallColor = 'rgba(255, 255, 255, 0.2)'
+    // Walls (Invisible again)
+    const wallColor = 'transparent' // Hidden
     const leftWall = Matter.Bodies.rectangle(0, h / 2, 50, h * 2, { 
         isStatic: true,
-        render: { fillStyle: wallColor, opacity: 1 },
+        render: { fillStyle: wallColor, opacity: 0 },
         friction: 0.0
     })
     const rightWall = Matter.Bodies.rectangle(w, h / 2, 50, h * 2, { 
         isStatic: true,
-        render: { fillStyle: wallColor, opacity: 1 },
+        render: { fillStyle: wallColor, opacity: 0 },
         friction: 0.0
     })
 
@@ -423,14 +423,6 @@ function handleResize() {
     // Explicitly set display size to match container
     render.canvas.style.width = `${w}px`
     render.canvas.style.height = `${h}px`
-    
-    // Reset context scale for DPI
-    // Matter.js setup does this once, but if we resize the buffer, we might lose the scale transform?
-    // Actually Matter.js usually sets scale in the run loop or before render?
-    // Let's re-apply it just in case, though Matter's renderer might over-write it.
-    // Matter Render Loop: ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
-    // It usually does this every frame if using Render.run. So we generally don't need to manually scale.
-    // BUT we do need to ensure the buffer is big enough.
     
     updateBlockDimensions() 
     createBoundaries(w, h)
@@ -540,17 +532,19 @@ function restack() {
     // Staggered Brick Wall Logic (Running Bond)
     const w = blockWidth.value
     const h = blockHeight.value
-    const gap = 1
+    const gap = 2 // Increased gap to prevent overlap
     const effWidth = w + gap
     
     // Calculate cols based on width
-    const availableWidth = width - 40 
+    // START FIX: subtract w/2 to account for stagger shift
+    const availableWidth = width - 40 - (w / 2)
     const cols = Math.floor(availableWidth / effWidth)
     const MAX_COLS = 12
     const safeCols = Math.max(1, Math.min(cols, MAX_COLS))
     
     // Center the wall
     const wallWidth = safeCols * effWidth
+    // START FIX: Adjust startX centering
     const startX = (width - wallWidth) / 2 + (w / 2)
     
     store.towerBlocks.forEach((block, index) => {
