@@ -46,13 +46,9 @@ function updateBlockDimensions() {
     
     // Mobile Breakpoint
     if (w < 600) {
-        // Aggressively smaller for mobile
-        // Target ~12 columns to look like a tower, not just a stack of bricks
-        const targetCols = 10
-        const rawWidth = Math.floor((w - 40) / targetCols) // -40 for padding
-        
-        blockWidth.value = Math.max(20, rawWidth) // Min 20px
-        blockHeight.value = Math.max(10, Math.floor(blockWidth.value * 0.6))
+        // Hardcode for safety - The calculation might be failing or resulting in weird aspect ratios
+        blockWidth.value = 35
+        blockHeight.value = 20
     } else {
         blockWidth.value = 50
         blockHeight.value = 25
@@ -389,8 +385,13 @@ function createBoundaries(w: number, h: number) {
         friction: 0.0
     }
     
-    // Floor (invisible, slightly below view)
-    const floor = Matter.Bodies.rectangle(w / 2, h + 25, w, 50, wallOptions)
+    // Floor (Raised to be visible and catch blocks above the fold)
+    const floorY = h - 15
+    const floor = Matter.Bodies.rectangle(w / 2, floorY, w, 50, { 
+        isStatic: true,
+        render: { fillStyle: 'rgba(255, 255, 255, 0.1)', opacity: 1 },
+        friction: 0.5 
+    })
     
     // Walls (Invisible-ish but keep blocks in)
     const leftWall = Matter.Bodies.rectangle(-25, h / 2, 50, h * 2, wallOptions)
@@ -577,13 +578,16 @@ function triggerChaos() {
     }, 2000)
 
     // Disable gravity briefly
-    engine.world.gravity.y = -0.5 // Float up slightly
+    engine.world.gravity.y = -0.2 // Reduced float (was -0.5)
     
+    // Cooldown reset
+    setTimeout(() => {
+        isChaosCooldown.value = false
+    }, 2000)
+
     // Scale force based on block size (approximate mass scaling)
-    // Standard size 50 -> Factor 1.0
-    // Mobile size 25 -> Factor ~0.25 (Area/Mass squared effect)
-    const baseForceX = 0.2
-    const baseForceY = 0.1
+    const baseForceX = 0.15 // Reduced
+    const baseForceY = 0.05 // Reduced
     const scaleFactor = (blockWidth.value * blockHeight.value) / (50 * 25) 
 
     Matter.Composite.allBodies(world).forEach(body => {
@@ -592,7 +596,7 @@ function triggerChaos() {
             // Apply scaled force
             Matter.Body.applyForce(body, body.position, {
                 x: (Math.random() - 0.5) * baseForceX * scaleFactor,
-                y: (-0.05 - Math.random() * baseForceY) * scaleFactor
+                y: (-0.02 - Math.random() * baseForceY) * scaleFactor
             })
         }
     })
