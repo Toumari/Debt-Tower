@@ -380,12 +380,6 @@ function createBoundaries(w: number, h: number) {
         Matter.World.remove(world, walls)
     }
 
-    const wallOptions = { 
-        isStatic: true, 
-        render: { fillStyle: 'transparent', opacity: 0 },
-        friction: 0.0
-    }
-    
     // Floor (Raised to be visible and catch blocks above the fold)
     const floorY = h - 15
     const floor = Matter.Bodies.rectangle(w / 2, floorY, w, 50, { 
